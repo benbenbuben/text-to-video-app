@@ -2,16 +2,19 @@ import { NextRequest } from 'next/server'
 
 // 确保环境变量已设置
 const getHuggingFaceToken = () => {
+  console.log('Checking HuggingFace API token...')
   const token = process.env.HUGGINGFACE_API_TOKEN
   if (!token) {
     console.error('HUGGINGFACE_API_TOKEN environment variable is not set')
     throw new Error('API configuration error. Please contact support.')
   }
+  console.log('HuggingFace API token is valid')
   return token
 }
 
 // 添加超时控制的 fetch 函数
 async function fetchWithTimeout(url: string, options: RequestInit, timeout = 25000) {
+  console.log(`Making request to ${url} with timeout ${timeout}ms`)
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeout)
 
@@ -21,25 +24,34 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 250
       signal: controller.signal
     })
     clearTimeout(id)
+    console.log(`Response received with status: ${response.status}`)
     return response
   } catch (error) {
     clearTimeout(id)
+    console.error('Fetch error:', error)
     throw error
   }
 }
 
 async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffer> {
+  console.log(`Generating image for prompt: "${prompt}" (attempt ${retryCount + 1})`)
   try {
+    const token = getHuggingFaceToken()
+    console.log('Making request to HuggingFace API...')
+    
     const response = await fetchWithTimeout(
       'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2',
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${getHuggingFaceToken()}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           inputs: prompt,
+          options: {
+            wait_for_model: true
+          }
         }),
       },
       25000 // 25秒超时，给其他操作留出时间
@@ -47,6 +59,7 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
 
     if (!response.ok) {
       let errorText = await response.text()
+      console.error(`API error response (${response.status}):`, errorText)
       
       // 处理不同类型的错误
       if (response.status === 503 && errorText.includes('loading') && retryCount < 2) {
@@ -67,17 +80,24 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       throw new Error(`API Error (${response.status}): ${errorText}`)
     }
 
+    console.log('Successfully received image data')
     return response.arrayBuffer()
   } catch (error) {
     if (error instanceof Error) {
+      console.error('Generate image error:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      })
+
       if (error.name === 'AbortError') {
+        console.error('Request timeout')
         throw new Error('Request timeout')
       }
       if (retryCount < 1) {
         // 处理网络错误，最多重试1次
         const waitTime = 5000 // 固定等待5秒
         console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/1`)
-        console.error(error)
         await new Promise(resolve => setTimeout(resolve, waitTime))
         return generateImage(prompt, retryCount + 1)
       }
@@ -93,17 +113,21 @@ export async function POST(request: NextRequest) {
   console.log('API route called')
   
   try {
+    console.log('Checking request content type...')
     const contentType = request.headers.get('content-type')
     if (!contentType?.includes('application/json')) {
+      console.error('Invalid content type:', contentType)
       return Response.json(
         { error: 'Content-Type must be application/json' },
         { status: 415 }
       )
     }
 
+    console.log('Parsing request body...')
     const { text } = await request.json()
 
     if (!text) {
+      console.error('Missing text in request')
       return Response.json(
         { error: 'Text is required' },
         { status: 400 }
@@ -122,6 +146,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const imageBuffer = await generateImage(framePrompt)
+        console.log(`Successfully generated frame ${i + 1}`)
         
         // 将 ArrayBuffer 转换为 base64
         const uint8Array = new Uint8Array(imageBuffer)
@@ -130,11 +155,13 @@ export async function POST(request: NextRequest) {
           binary += String.fromCharCode(uint8Array[j])
         }
         const base64 = Buffer.from(binary, 'binary').toString('base64')
+        console.log(`Successfully encoded frame ${i + 1} to base64`)
         
         frames.push(base64)
         
         // 减少帧之间的延迟
         if (i < numFrames - 1) {
+          console.log('Waiting before generating next frame...')
           await new Promise(resolve => setTimeout(resolve, 1000)) // 从3秒减少到1秒
         }
       } catch (error) {
@@ -143,7 +170,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('All frames generated')
+    console.log('All frames generated successfully')
 
     return Response.json({ 
       output: frames,
@@ -155,8 +182,15 @@ export async function POST(request: NextRequest) {
     // 根据错误类型返回适当的错误信息
     let errorMessage = 'Failed to generate content'
     let statusCode = 500
+    let errorDetails = ''
 
     if (error instanceof Error) {
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      })
+
       if (error.message.includes('API configuration error')) {
         statusCode = 503
         errorMessage = 'Service temporarily unavailable'
@@ -166,13 +200,19 @@ export async function POST(request: NextRequest) {
       } else if (error.message.includes('Rate limited')) {
         statusCode = 429
         errorMessage = 'Too many requests'
+      } else if (error.message.includes('API Error')) {
+        // 保留原始 API 错误消息
+        errorMessage = error.message
       }
+
+      errorDetails = process.env.NODE_ENV === 'development' ? error.stack || '' : ''
     }
 
+    console.error(`Returning error response: ${statusCode} - ${errorMessage}`)
     return Response.json(
       { 
         error: errorMessage,
-        details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.stack : undefined : undefined
+        details: errorDetails
       },
       { status: statusCode }
     )
