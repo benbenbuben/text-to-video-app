@@ -9,9 +9,27 @@ const getHuggingFaceToken = () => {
   return token
 }
 
+// 添加超时控制的 fetch 函数
+async function fetchWithTimeout(url: string, options: RequestInit, timeout = 60000) {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    })
+    clearTimeout(id)
+    return response
+  } catch (error) {
+    clearTimeout(id)
+    throw error
+  }
+}
+
 async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffer> {
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2',
       {
         method: 'POST',
@@ -22,7 +40,8 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
         body: JSON.stringify({
           inputs: prompt,
         }),
-      }
+      },
+      30000 // 30秒超时
     )
 
     if (!response.ok) {
@@ -49,17 +68,24 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
 
     return response.arrayBuffer()
   } catch (error) {
-    if (error instanceof Error && retryCount < 3) {
-      // 处理网络错误
-      const waitTime = 5000 * (retryCount + 1) // 递增等待时间
-      console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
-      console.error(error)
-      await new Promise(resolve => setTimeout(resolve, waitTime))
-      return generateImage(prompt, retryCount + 1)
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout')
+      }
+      if (retryCount < 3) {
+        // 处理网络错误
+        const waitTime = 5000 * (retryCount + 1) // 递增等待时间
+        console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
+        console.error(error)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+        return generateImage(prompt, retryCount + 1)
+      }
     }
     throw error
   }
 }
+
+export const maxDuration = 300 // 设置最大执行时间为 300 秒（5分钟）
 
 export async function POST(request: NextRequest) {
   console.log('API route called')
@@ -69,9 +95,7 @@ export async function POST(request: NextRequest) {
     if (!contentType?.includes('application/json')) {
       return Response.json(
         { error: 'Content-Type must be application/json' },
-        { 
-          status: 415,
-        }
+        { status: 415 }
       )
     }
 
