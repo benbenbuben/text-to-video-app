@@ -33,7 +33,15 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 250
   }
 }
 
-async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffer> {
+// 添加延迟函数
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+async function generateImage(prompt: string, retryCount = 0, waitTime = 0): Promise<ArrayBuffer> {
+  if (waitTime > 0) {
+    console.log(`Waiting ${waitTime/1000} seconds before attempting generation...`)
+    await delay(waitTime)
+  }
+
   console.log(`Generating image for prompt: "${prompt}" (attempt ${retryCount + 1})`)
   try {
     const token = getHuggingFaceToken()
@@ -61,20 +69,32 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       let errorText = await response.text()
       console.error(`API error response (${response.status}):`, errorText)
       
-      // 处理不同类型的错误
-      if (response.status === 503 && errorText.includes('loading') && retryCount < 2) {
-        // 模型加载中，最多重试2次
+      try {
         const errorData = JSON.parse(errorText)
-        const waitTime = Math.min(errorData.estimated_time || 10, 10) * 1000
-        console.log(`Model loading, waiting ${waitTime/1000}s before retry ${retryCount + 1}/2`)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
-        return generateImage(prompt, retryCount + 1)
-      } else if (response.status === 429 && retryCount < 2) {
-        // 速率限制，最多重试2次
-        const waitTime = 10000 // 等待10秒
-        console.log(`Rate limited, waiting ${waitTime/1000}s before retry ${retryCount + 1}/2`)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
-        return generateImage(prompt, retryCount + 1)
+        
+        // 处理不同类型的错误
+        if (response.status === 503 && errorText.includes('loading') && retryCount < 2) {
+          // 模型加载中，最多重试2次
+          const retryWaitTime = Math.min(errorData.estimated_time || 10, 10) * 1000
+          console.log(`Model loading, waiting ${retryWaitTime/1000}s before retry ${retryCount + 1}/2`)
+          return generateImage(prompt, retryCount + 1, retryWaitTime)
+        } else if (response.status === 429) {
+          if (errorText.includes('Max requests total reached')) {
+            // 如果是总请求数限制，等待更长时间
+            if (retryCount < 3) {
+              const retryWaitTime = 65000 // 等待65秒，确保超过1分钟的限制
+              console.log(`Rate limited (total), waiting ${retryWaitTime/1000}s before retry ${retryCount + 1}/3`)
+              return generateImage(prompt, retryCount + 1, retryWaitTime)
+            }
+          } else if (retryCount < 2) {
+            // 其他速率限制，等待较短时间
+            const retryWaitTime = 10000 // 等待10秒
+            console.log(`Rate limited, waiting ${retryWaitTime/1000}s before retry ${retryCount + 1}/2`)
+            return generateImage(prompt, retryCount + 1, retryWaitTime)
+          }
+        }
+      } catch (parseError) {
+        console.error('Error parsing API error response:', parseError)
       }
 
       throw new Error(`API Error (${response.status}): ${errorText}`)
@@ -96,10 +116,9 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       }
       if (retryCount < 1) {
         // 处理网络错误，最多重试1次
-        const waitTime = 5000 // 固定等待5秒
-        console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/1`)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
-        return generateImage(prompt, retryCount + 1)
+        const retryWaitTime = 5000 // 固定等待5秒
+        console.log(`Network error, waiting ${retryWaitTime/1000}s before retry ${retryCount + 1}/1`)
+        return generateImage(prompt, retryCount + 1, retryWaitTime)
       }
     }
     throw error
@@ -145,6 +164,12 @@ export async function POST(request: NextRequest) {
       console.log(`Generating frame ${i + 1}/${numFrames}`)
 
       try {
+        // 为每个后续帧添加延迟，以避免速率限制
+        if (i > 0) {
+          console.log('Adding delay between frames to avoid rate limits...')
+          await delay(5000) // 每帧之间等待5秒
+        }
+
         const imageBuffer = await generateImage(framePrompt)
         console.log(`Successfully generated frame ${i + 1}`)
         
@@ -158,12 +183,6 @@ export async function POST(request: NextRequest) {
         console.log(`Successfully encoded frame ${i + 1} to base64`)
         
         frames.push(base64)
-        
-        // 减少帧之间的延迟
-        if (i < numFrames - 1) {
-          console.log('Waiting before generating next frame...')
-          await new Promise(resolve => setTimeout(resolve, 1000)) // 从3秒减少到1秒
-        }
       } catch (error) {
         console.error(`Error generating frame ${i + 1}:`, error)
         throw error
@@ -197,12 +216,12 @@ export async function POST(request: NextRequest) {
       } else if (error.message.includes('timeout')) {
         statusCode = 504
         errorMessage = 'Request timeout'
-      } else if (error.message.includes('Rate limited')) {
+      } else if (error.message.includes('Rate limited') || error.message.includes('Max requests')) {
         statusCode = 429
-        errorMessage = 'Too many requests'
+        errorMessage = 'Service is busy. Please wait a moment and try again.'
       } else if (error.message.includes('API Error')) {
-        // 保留原始 API 错误消息
-        errorMessage = error.message
+        errorMessage = 'Service is temporarily busy. Please try again in a minute.'
+        statusCode = 429
       }
 
       errorDetails = process.env.NODE_ENV === 'development' ? error.stack || '' : ''
