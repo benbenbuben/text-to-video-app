@@ -155,8 +155,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Starting image generation with text:', text)
 
-    // 减少生成的帧数以适应时间限制
-    const numFrames = 4 // 从8帧减少到4帧
+    // 减少生成的帧数以避免超时
+    const numFrames = 3 // 从4帧减少到3帧
     const frames = []
 
     for (let i = 0; i < numFrames; i++) {
