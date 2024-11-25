@@ -9,6 +9,15 @@ const getHuggingFaceToken = () => {
   return token
 }
 
+// 确保环境变量已设置
+const getHuggingFaceToken = () => {
+  const token = process.env.HUGGINGFACE_API_TOKEN
+  if (!token) {
+    throw new Error('Missing HuggingFace API token')
+  }
+  return token
+}
+
 // 添加超时控制的 fetch 函数
 async function fetchWithTimeout(url: string, options: RequestInit, timeout = 25000) {
   const controller = new AbortController()
