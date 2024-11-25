@@ -25,21 +25,25 @@ export default function VideoForm() {
 
     try {
       console.log('Submitting text:', text)
-      const response = await fetch('/api/convert', {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const response = await fetch(`${baseUrl}/api/convert`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({ text }),
       })
 
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
       const contentType = response.headers.get('content-type')
       if (!contentType || !contentType.includes('application/json')) {
+        console.error('Invalid content type:', contentType)
         throw new Error(`Expected JSON response but got ${contentType}`)
       }
 
       const data = await response.json()
-      console.log('API response received')
+      console.log('API response received:', data)
 
       if (!response.ok) {
         // 检查是否是速率限制错误
