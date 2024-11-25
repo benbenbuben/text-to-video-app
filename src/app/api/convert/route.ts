@@ -4,7 +4,8 @@ import { NextRequest } from 'next/server'
 const getHuggingFaceToken = () => {
   const token = process.env.HUGGINGFACE_API_TOKEN
   if (!token) {
-    throw new Error('Missing HuggingFace API token')
+    console.error('HUGGINGFACE_API_TOKEN environment variable is not set')
+    throw new Error('API configuration error. Please contact support.')
   }
   return token
 }
@@ -150,12 +151,30 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error in generation:', error)
+    
+    // 根据错误类型返回适当的错误信息
+    let errorMessage = 'Failed to generate content'
+    let statusCode = 500
+
+    if (error instanceof Error) {
+      if (error.message.includes('API configuration error')) {
+        statusCode = 503
+        errorMessage = 'Service temporarily unavailable'
+      } else if (error.message.includes('timeout')) {
+        statusCode = 504
+        errorMessage = 'Request timeout'
+      } else if (error.message.includes('Rate limited')) {
+        statusCode = 429
+        errorMessage = 'Too many requests'
+      }
+    }
+
     return Response.json(
       { 
-        error: error instanceof Error ? error.message : 'Failed to generate content',
-        details: error instanceof Error ? error.stack : undefined
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.stack : undefined : undefined
       },
-      { status: 500 }
+      { status: statusCode }
     )
   }
 }
