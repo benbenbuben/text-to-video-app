@@ -10,7 +10,7 @@ const getHuggingFaceToken = () => {
 }
 
 // 添加超时控制的 fetch 函数
-async function fetchWithTimeout(url: string, options: RequestInit, timeout = 60000) {
+async function fetchWithTimeout(url: string, options: RequestInit, timeout = 25000) {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeout)
 
@@ -41,24 +41,24 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
           inputs: prompt,
         }),
       },
-      30000 // 30秒超时
+      25000 // 25秒超时，给其他操作留出时间
     )
 
     if (!response.ok) {
       let errorText = await response.text()
       
       // 处理不同类型的错误
-      if (response.status === 503 && errorText.includes('loading') && retryCount < 3) {
-        // 模型加载中
+      if (response.status === 503 && errorText.includes('loading') && retryCount < 2) {
+        // 模型加载中，最多重试2次
         const errorData = JSON.parse(errorText)
-        const waitTime = Math.min(errorData.estimated_time || 20, 20) * 1000
-        console.log(`Model loading, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
+        const waitTime = Math.min(errorData.estimated_time || 10, 10) * 1000
+        console.log(`Model loading, waiting ${waitTime/1000}s before retry ${retryCount + 1}/2`)
         await new Promise(resolve => setTimeout(resolve, waitTime))
         return generateImage(prompt, retryCount + 1)
-      } else if (response.status === 429 && retryCount < 5) {
-        // 速率限制
-        const waitTime = 65000 // 等待65秒，略多于1分钟的限制
-        console.log(`Rate limited, waiting ${waitTime/1000}s before retry ${retryCount + 1}/5`)
+      } else if (response.status === 429 && retryCount < 2) {
+        // 速率限制，最多重试2次
+        const waitTime = 10000 // 等待10秒
+        console.log(`Rate limited, waiting ${waitTime/1000}s before retry ${retryCount + 1}/2`)
         await new Promise(resolve => setTimeout(resolve, waitTime))
         return generateImage(prompt, retryCount + 1)
       }
@@ -72,10 +72,10 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       if (error.name === 'AbortError') {
         throw new Error('Request timeout')
       }
-      if (retryCount < 3) {
-        // 处理网络错误
-        const waitTime = 5000 * (retryCount + 1) // 递增等待时间
-        console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
+      if (retryCount < 1) {
+        // 处理网络错误，最多重试1次
+        const waitTime = 5000 // 固定等待5秒
+        console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/1`)
         console.error(error)
         await new Promise(resolve => setTimeout(resolve, waitTime))
         return generateImage(prompt, retryCount + 1)
@@ -85,7 +85,8 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
   }
 }
 
-export const maxDuration = 300 // 设置最大执行时间为 300 秒（5分钟）
+// 设置最大执行时间为 60 秒（Vercel Hobby 计划的限制）
+export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
   console.log('API route called')
@@ -110,8 +111,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Starting image generation with text:', text)
 
-    // 生成图片序列
-    const numFrames = 8
+    // 减少生成的帧数以适应时间限制
+    const numFrames = 4 // 从8帧减少到4帧
     const frames = []
 
     for (let i = 0; i < numFrames; i++) {
@@ -131,9 +132,9 @@ export async function POST(request: NextRequest) {
         
         frames.push(base64)
         
-        // 在帧之间添加更长的延迟以避免速率限制
+        // 减少帧之间的延迟
         if (i < numFrames - 1) {
-          await new Promise(resolve => setTimeout(resolve, 3000)) // 等待3秒再生成下一帧
+          await new Promise(resolve => setTimeout(resolve, 1000)) // 从3秒减少到1秒
         }
       } catch (error) {
         console.error(`Error generating frame ${i + 1}:`, error)

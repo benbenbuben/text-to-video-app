@@ -25,10 +25,6 @@ const nextConfig = {
       },
     ]
   },
-  serverRuntimeConfig: {
-    // 增加 API 路由的超时时间
-    apiTimeout: 300, // 5分钟
-  },
 }
 
 module.exports = nextConfig
