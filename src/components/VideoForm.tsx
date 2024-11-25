@@ -30,107 +30,95 @@ export default function VideoForm() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
         },
         body: JSON.stringify({ text }),
       })
 
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('Invalid content type:', contentType)
-        throw new Error(`Expected JSON response but got ${contentType}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to generate content')
       }
 
       const data = await response.json()
       console.log('API response received:', data)
 
-      if (!response.ok) {
-        // 检查是否是速率限制错误
-        if (data.error?.includes('Max requests')) {
-          setLoadingMessage('Rate limited. Please wait a minute before trying again.')
-          throw new Error(data.error)
-        }
-        // 检查是否是模型加载错误
-        if (data.error?.includes('Model') && data.error?.includes('loading')) {
-          const match = data.error.match(/estimated_time":(\d+\.?\d*)/)
-          const estimatedTime = match ? parseFloat(match[1]) : 20
-          const waitTime = Math.min(estimatedTime, 20)
-          setLoadingMessage(`Model is warming up, please wait ~${Math.ceil(waitTime)} seconds...`)
-          throw new Error(data.error)
-        }
-        throw new Error(data.error || 'Failed to generate content')
+      if (data.error) {
+        throw new Error(data.error)
       }
 
-      if (!data.output || !Array.isArray(data.output)) {
-        console.error('Invalid response data:', data)
+      if (!Array.isArray(data.output)) {
         throw new Error('Invalid response format')
       }
 
       setFrames(data.output)
     } catch (err) {
-      console.error('Error in generation:', err)
+      console.error('Error:', err)
       setError({
-        error: err instanceof Error ? err.message : 'Something went wrong',
+        error: err instanceof Error ? err.message : 'An unknown error occurred',
         details: err instanceof Error ? err.stack : undefined
       })
     } finally {
       setLoading(false)
-      setLoadingMessage('Generating frames...')
     }
   }
 
   useEffect(() => {
-    if (frames.length > 0) {
-      const interval = setInterval(() => {
+    let timer: NodeJS.Timeout
+    if (frames.length > 0 && !loading) {
+      timer = setInterval(() => {
         setCurrentFrame((prev) => (prev + 1) % frames.length)
-      }, 200) // 每200ms切换一帧
-
-      return () => clearInterval(interval)
+      }, 200) // 每200毫秒切换一帧
     }
-  }, [frames])
+    return () => {
+      if (timer) {
+        clearInterval(timer)
+      }
+    }
+  }, [frames, loading])
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
+    <div className="w-full max-w-2xl mx-auto p-4">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label
-            htmlFor="text"
-            className="block text-sm font-medium text-gray-700"
-          >
-            Enter your text
+          <label htmlFor="text" className="block text-sm font-medium text-gray-700">
+            Enter your text prompt
           </label>
           <textarea
             id="text"
-            name="text"
-            rows={4}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-            placeholder="Describe the animation you want to create..."
             value={text}
             onChange={(e) => setText(e.target.value)}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            rows={4}
+            placeholder="A cat playing piano..."
             required
-            disabled={loading}
           />
         </div>
-
         <button
           type="submit"
           disabled={loading}
-          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
+          className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+            loading
+              ? 'bg-indigo-400 cursor-not-allowed'
+              : 'bg-indigo-600 hover:bg-indigo-700'
+          }`}
         >
-          {loading ? (
-            <span className="loading-dots">{loadingMessage}</span>
-          ) : (
-            'Generate Animation'
-          )}
+          {loading ? 'Generating...' : 'Generate Animation'}
         </button>
       </form>
 
+      {loading && (
+        <div className="mt-4 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto"></div>
+          <p className="mt-2 text-sm text-gray-600">{loadingMessage}</p>
+        </div>
+      )}
+
       {error && (
-        <div className="mt-4 p-4 rounded-md bg-red-50 text-red-700">
-          <p className="font-medium">Error: {error.error}</p>
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <h3 className="text-sm font-medium text-red-800">Error</h3>
+          <p className="mt-2 text-sm text-red-700">{error.error}</p>
           {error.details && (
-            <pre className="mt-2 text-sm overflow-auto">
+            <pre className="mt-2 text-xs text-red-600 overflow-auto">
               {error.details}
             </pre>
           )}
@@ -138,18 +126,17 @@ export default function VideoForm() {
       )}
 
       {frames.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-lg font-medium text-gray-900">Generated Animation</h2>
-          <div className="mt-2 aspect-square rounded-lg overflow-hidden bg-gray-100">
+        <div className="mt-4">
+          <div className="aspect-w-1 aspect-h-1 w-full">
             <img
-              src={`data:image/jpeg;base64,${frames[currentFrame]}`}
+              src={`data:image/png;base64,${frames[currentFrame]}`}
               alt={`Frame ${currentFrame + 1}`}
-              className="w-full h-full object-contain"
+              className="object-contain w-full h-full rounded-lg shadow-lg"
             />
           </div>
-          <div className="mt-2 text-sm text-gray-500 text-center">
+          <p className="mt-2 text-sm text-gray-600 text-center">
             Frame {currentFrame + 1} of {frames.length}
-          </div>
+          </p>
         </div>
       )}
     </div>
