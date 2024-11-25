@@ -8,6 +8,11 @@ const getHuggingFaceToken = () => {
     console.error('HUGGINGFACE_API_TOKEN environment variable is not set')
     throw new Error('API configuration error. Please contact support.')
   }
+  // 验证 token 格式
+  if (!token.startsWith('hf_') || token.length < 10) {
+    console.error('Invalid HuggingFace API token format')
+    throw new Error('Invalid API token format. Please check your configuration.')
+  }
   console.log('HuggingFace API token is valid')
   return token
 }
@@ -69,6 +74,15 @@ async function generateImage(prompt: string, retryCount = 0, waitTime = 0): Prom
       let errorText = await response.text()
       console.error(`API error response (${response.status}):`, errorText)
       
+      // 检查是否返回了 HTML
+      if (errorText.trim().startsWith('<!DOCTYPE') || errorText.trim().startsWith('<html')) {
+        console.error('Received HTML response instead of JSON')
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('API authentication failed. Please check your API token.')
+        }
+        throw new Error(`API returned HTML (status ${response.status}). The service might be experiencing issues.`)
+      }
+
       try {
         const errorData = JSON.parse(errorText)
         
@@ -95,9 +109,18 @@ async function generateImage(prompt: string, retryCount = 0, waitTime = 0): Prom
         }
       } catch (parseError) {
         console.error('Error parsing API error response:', parseError)
+        // 如果无法解析 JSON，返回原始错误文本
+        throw new Error(`API Error (${response.status}): Unable to parse error response`)
       }
 
       throw new Error(`API Error (${response.status}): ${errorText}`)
+    }
+
+    // 验证响应是否为有效的图像数据
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('image/')) {
+      console.error('Invalid content type received:', contentType)
+      throw new Error('API returned invalid content type. Expected image data.')
     }
 
     console.log('Successfully received image data')
