@@ -1,3 +1,6 @@
+// 确保这是服务器组件
+'use server'
+
 import type { Metadata } from 'next'
 import './globals.css'
 
@@ -39,7 +42,7 @@ export default function RootLayout({
           <footer className="bg-white mt-auto">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="py-4 text-center text-sm text-gray-500">
-                © 2024 Text to Video Converter. All rights reserved.
+                2024 Text to Video Converter. All rights reserved.
               </div>
             </div>
           </footer>
