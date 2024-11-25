@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 // 将检查移到运行时
 const getHuggingFaceToken = () => {
@@ -7,10 +7,6 @@ const getHuggingFaceToken = () => {
     throw new Error('Missing HuggingFace API token')
   }
   return token
-}
-
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffer> {
@@ -50,13 +46,13 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
         const errorData = JSON.parse(errorText)
         const waitTime = Math.min(errorData.estimated_time || 20, 20) * 1000
         console.log(`Model loading, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
-        await sleep(waitTime)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
         return generateImage(prompt, retryCount + 1)
       } else if (response.status === 429 && retryCount < 5) {
         // 速率限制
         const waitTime = 65000 // 等待65秒，略多于1分钟的限制
         console.log(`Rate limited, waiting ${waitTime/1000}s before retry ${retryCount + 1}/5`)
-        await sleep(waitTime)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
         return generateImage(prompt, retryCount + 1)
       }
 
@@ -74,15 +70,28 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       const waitTime = 5000 * (retryCount + 1) // 递增等待时间
       console.log(`Network error, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
       console.error(error)
-      await sleep(waitTime)
+      await new Promise(resolve => setTimeout(resolve, waitTime))
       return generateImage(prompt, retryCount + 1)
     }
     throw error
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const contentType = request.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      return NextResponse.json(
+        { error: 'Content-Type must be application/json' },
+        { 
+          status: 415,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      )
+    }
+
     const { text } = await request.json()
 
     if (!text) {
@@ -122,7 +131,7 @@ export async function POST(request: Request) {
         
         // 在帧之间添加更长的延迟以避免速率限制
         if (i < numFrames - 1) {
-          await sleep(3000) // 等待3秒再生成下一帧
+          await new Promise(resolve => setTimeout(resolve, 3000)) // 等待3秒再生成下一帧
         }
       } catch (error) {
         console.error(`Error generating frame ${i + 1}:`, error)
@@ -132,21 +141,25 @@ export async function POST(request: Request) {
 
     console.log('All frames generated')
 
-    return NextResponse.json({ 
-      output: frames,
-      type: 'image-sequence'
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
+    return new NextResponse(
+      JSON.stringify({ 
+        output: frames,
+        type: 'image-sequence'
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        }
       }
-    })
+    )
   } catch (error) {
     console.error('Error in generation:', error)
-    return NextResponse.json(
-      { 
+    return new NextResponse(
+      JSON.stringify({ 
         error: error instanceof Error ? error.message : 'Failed to generate content',
         details: error instanceof Error ? error.stack : undefined
-      },
+      }),
       { 
         status: 500,
         headers: {
