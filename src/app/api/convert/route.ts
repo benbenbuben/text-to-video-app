@@ -22,6 +22,7 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
         headers: {
           'Authorization': `Bearer ${getHuggingFaceToken()}`,
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           inputs: prompt,
@@ -29,13 +30,24 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       }
     )
 
+    const contentType = response.headers.get('content-type')
     if (!response.ok) {
-      const errorText = await response.text()
-      const errorData = JSON.parse(errorText)
+      let errorText: string
+      try {
+        if (contentType?.includes('application/json')) {
+          const errorData = await response.json()
+          errorText = JSON.stringify(errorData)
+        } else {
+          errorText = await response.text()
+        }
+      } catch (e) {
+        errorText = `Failed to parse error response: ${e}`
+      }
       
       // 处理不同类型的错误
-      if (response.status === 503 && errorData.error?.includes('loading') && retryCount < 3) {
+      if (response.status === 503 && errorText.includes('loading') && retryCount < 3) {
         // 模型加载中
+        const errorData = JSON.parse(errorText)
         const waitTime = Math.min(errorData.estimated_time || 20, 20) * 1000
         console.log(`Model loading, waiting ${waitTime/1000}s before retry ${retryCount + 1}/3`)
         await sleep(waitTime)
@@ -49,6 +61,10 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       }
 
       throw new Error(`API Error (${response.status}): ${errorText}`)
+    }
+
+    if (!contentType?.includes('image/')) {
+      throw new Error(`Expected image response but got ${contentType}`)
     }
 
     return response.arrayBuffer()
@@ -72,7 +88,12 @@ export async function POST(request: Request) {
     if (!text) {
       return NextResponse.json(
         { error: 'Text is required' },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
       )
     }
 
@@ -114,6 +135,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       output: frames,
       type: 'image-sequence'
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
     })
   } catch (error) {
     console.error('Error in generation:', error)
@@ -122,7 +147,12 @@ export async function POST(request: Request) {
         error: error instanceof Error ? error.message : 'Failed to generate content',
         details: error instanceof Error ? error.stack : undefined
       },
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
     )
   }
 }

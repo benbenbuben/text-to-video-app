@@ -33,6 +33,11 @@ export default function VideoForm() {
         body: JSON.stringify({ text }),
       })
 
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`Expected JSON response but got ${contentType}`)
+      }
+
       const data = await response.json()
       console.log('API response received')
 
@@ -54,6 +59,7 @@ export default function VideoForm() {
       }
 
       if (!data.output || !Array.isArray(data.output)) {
+        console.error('Invalid response data:', data)
         throw new Error('Invalid response format')
       }
 
