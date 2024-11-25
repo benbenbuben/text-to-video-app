@@ -1,14 +1,5 @@
 import { NextRequest } from 'next/server'
 
-// 将检查移到运行时
-const getHuggingFaceToken = () => {
-  const token = process.env.HUGGINGFACE_API_TOKEN
-  if (!token) {
-    throw new Error('Missing HuggingFace API token')
-  }
-  return token
-}
-
 // 确保环境变量已设置
 const getHuggingFaceToken = () => {
   const token = process.env.HUGGINGFACE_API_TOKEN
