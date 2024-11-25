@@ -1,6 +1,3 @@
-// 确保这是服务器组件
-'use server'
-
 import VideoForm from '@/components/VideoForm'
 
 export default function Home() {

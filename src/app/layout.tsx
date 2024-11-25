@@ -1,6 +1,3 @@
-// 确保这是服务器组件
-'use server'
-
 import type { Metadata } from 'next'
 import './globals.css'
 
