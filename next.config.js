@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    appDir: true,
+  },
   async headers() {
     return [
       {
@@ -11,6 +14,14 @@ const nextConfig = {
             value: 'application/json',
           },
         ],
+      },
+    ]
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: '/api/:path*',
       },
     ]
   },

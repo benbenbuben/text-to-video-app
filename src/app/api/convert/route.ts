@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 
 // 将检查移到运行时
 const getHuggingFaceToken = () => {
@@ -18,7 +18,6 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
         headers: {
           'Authorization': `Bearer ${getHuggingFaceToken()}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
         },
         body: JSON.stringify({
           inputs: prompt,
@@ -26,19 +25,8 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       }
     )
 
-    const contentType = response.headers.get('content-type')
     if (!response.ok) {
-      let errorText: string
-      try {
-        if (contentType?.includes('application/json')) {
-          const errorData = await response.json()
-          errorText = JSON.stringify(errorData)
-        } else {
-          errorText = await response.text()
-        }
-      } catch (e) {
-        errorText = `Failed to parse error response: ${e}`
-      }
+      let errorText = await response.text()
       
       // 处理不同类型的错误
       if (response.status === 503 && errorText.includes('loading') && retryCount < 3) {
@@ -59,10 +47,6 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       throw new Error(`API Error (${response.status}): ${errorText}`)
     }
 
-    if (!contentType?.includes('image/')) {
-      throw new Error(`Expected image response but got ${contentType}`)
-    }
-
     return response.arrayBuffer()
   } catch (error) {
     if (error instanceof Error && retryCount < 3) {
@@ -78,16 +62,15 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
 }
 
 export async function POST(request: NextRequest) {
+  console.log('API route called')
+  
   try {
     const contentType = request.headers.get('content-type')
-    if (!contentType || !contentType.includes('application/json')) {
-      return NextResponse.json(
+    if (!contentType?.includes('application/json')) {
+      return Response.json(
         { error: 'Content-Type must be application/json' },
         { 
           status: 415,
-          headers: {
-            'Content-Type': 'application/json',
-          }
         }
       )
     }
@@ -95,14 +78,9 @@ export async function POST(request: NextRequest) {
     const { text } = await request.json()
 
     if (!text) {
-      return NextResponse.json(
+      return Response.json(
         { error: 'Text is required' },
-        { 
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        }
+        { status: 400 }
       )
     }
 
@@ -141,31 +119,18 @@ export async function POST(request: NextRequest) {
 
     console.log('All frames generated')
 
-    return new NextResponse(
-      JSON.stringify({ 
-        output: frames,
-        type: 'image-sequence'
-      }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      }
-    )
+    return Response.json({ 
+      output: frames,
+      type: 'image-sequence'
+    })
   } catch (error) {
     console.error('Error in generation:', error)
-    return new NextResponse(
-      JSON.stringify({ 
+    return Response.json(
+      { 
         error: error instanceof Error ? error.message : 'Failed to generate content',
         details: error instanceof Error ? error.stack : undefined
-      }),
-      { 
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      }
+      },
+      { status: 500 }
     )
   }
 }
