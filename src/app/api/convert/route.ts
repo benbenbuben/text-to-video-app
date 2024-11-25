@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
 
-if (!process.env.HUGGINGFACE_API_TOKEN) {
-  throw new Error('Missing HuggingFace API token')
+// 将检查移到运行时
+const getHuggingFaceToken = () => {
+  const token = process.env.HUGGINGFACE_API_TOKEN
+  if (!token) {
+    throw new Error('Missing HuggingFace API token')
+  }
+  return token
 }
 
 async function sleep(ms: number) {
@@ -15,7 +20,7 @@ async function generateImage(prompt: string, retryCount = 0): Promise<ArrayBuffe
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.HUGGINGFACE_API_TOKEN}`,
+          'Authorization': `Bearer ${getHuggingFaceToken()}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
