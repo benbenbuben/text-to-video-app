@@ -14,6 +14,24 @@ export default function VideoForm() {
   const [frames, setFrames] = useState<string[]>([])
   const [currentFrame, setCurrentFrame] = useState(0)
   const [loadingMessage, setLoadingMessage] = useState('Generating frames...')
+  const [isOnline, setIsOnline] = useState(true)
+
+  useEffect(() => {
+    // 初始化在线状态
+    setIsOnline(navigator.onLine)
+
+    // 监听在线状态变化
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,7 +43,7 @@ export default function VideoForm() {
 
     try {
       // 检查网络连接
-      if (!navigator.onLine) {
+      if (!isOnline) {
         throw new Error('No internet connection. Please check your network and try again.')
       }
 
@@ -125,9 +143,9 @@ export default function VideoForm() {
         </div>
         <button
           type="submit"
-          disabled={loading || !navigator.onLine}
+          disabled={loading || !isOnline}
           className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-            loading || !navigator.onLine
+            loading || !isOnline
               ? 'bg-indigo-400 cursor-not-allowed'
               : 'bg-indigo-600 hover:bg-indigo-700'
           }`}
@@ -135,6 +153,14 @@ export default function VideoForm() {
           {loading ? 'Generating...' : 'Generate Animation'}
         </button>
       </form>
+
+      {!isOnline && (
+        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+          <p className="text-sm text-yellow-800">
+            You are currently offline. Please check your internet connection.
+          </p>
+        </div>
+      )}
 
       {loading && (
         <div className="mt-4 text-center">
