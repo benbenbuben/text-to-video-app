@@ -24,23 +24,41 @@ export default function VideoForm() {
     setLoadingMessage('Generating frames...')
 
     try {
-      console.log('Submitting text:', text)
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      // 检查网络连接
+      if (!navigator.onLine) {
+        throw new Error('No internet connection. Please check your network and try again.')
+      }
+
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin
+      console.log('Using API URL:', baseUrl)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000) // 60秒超时
+
       const response = await fetch(`${baseUrl}/api/convert`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ text }),
+        signal: controller.signal,
+      }).finally(() => {
+        clearTimeout(timeoutId)
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to generate content')
-      }
-
       const data = await response.json()
-      console.log('API response received:', data)
+
+      if (!response.ok) {
+        let errorMessage = data.error || 'Failed to generate content'
+        if (response.status === 503) {
+          errorMessage = 'Service is temporarily unavailable. Please try again later.'
+        } else if (response.status === 504) {
+          errorMessage = 'Request timed out. Please try again.'
+        } else if (response.status === 429) {
+          errorMessage = 'Too many requests. Please wait a moment and try again.'
+        }
+        throw new Error(errorMessage)
+      }
 
       if (data.error) {
         throw new Error(data.error)
@@ -52,10 +70,22 @@ export default function VideoForm() {
 
       setFrames(data.output)
     } catch (err) {
-      console.error('Error:', err)
+      console.error('Error in form submission:', err)
+      let errorMessage = 'An unexpected error occurred'
+
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMessage = 'Request timed out. Please try again.'
+        } else if (err.message === 'Failed to fetch') {
+          errorMessage = 'Unable to connect to the server. Please check your network connection and try again.'
+        } else {
+          errorMessage = err.message
+        }
+      }
+
       setError({
-        error: err instanceof Error ? err.message : 'An unknown error occurred',
-        details: err instanceof Error ? err.stack : undefined
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? err instanceof Error ? err.stack : undefined : undefined
       })
     } finally {
       setLoading(false)
@@ -95,9 +125,9 @@ export default function VideoForm() {
         </div>
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !navigator.onLine}
           className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-            loading
+            loading || !navigator.onLine
               ? 'bg-indigo-400 cursor-not-allowed'
               : 'bg-indigo-600 hover:bg-indigo-700'
           }`}
@@ -117,7 +147,7 @@ export default function VideoForm() {
         <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
           <h3 className="text-sm font-medium text-red-800">Error</h3>
           <p className="mt-2 text-sm text-red-700">{error.error}</p>
-          {error.details && (
+          {error.details && process.env.NODE_ENV === 'development' && (
             <pre className="mt-2 text-xs text-red-600 overflow-auto">
               {error.details}
             </pre>
