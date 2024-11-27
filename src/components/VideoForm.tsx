@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 
 interface ErrorResponse {
   error: string
@@ -125,7 +126,17 @@ export default function VideoForm() {
   }, [frames, loading])
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-4">
+    <div className="w-full max-w-2xl mx-auto p-4 space-y-4">
+      <div className="flex justify-center mb-8">
+        <Image
+          src="/images/ttov.png"
+          alt="Text to Video Logo"
+          width={150}
+          height={150}
+          priority
+          className="rounded-lg"
+        />
+      </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="text" className="block text-sm font-medium text-gray-700">
