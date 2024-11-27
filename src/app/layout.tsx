@@ -11,6 +11,11 @@ export const metadata: Metadata = {
     description: 'Convert your text into beautiful videos with AI',
     type: 'website',
   },
+  icons: {
+    icon: '/images/ttov.png',
+    shortcut: '/images/ttov.png',
+    apple: '/images/ttov.png',
+  },
 }
 
 export default function RootLayout({
